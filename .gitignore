@@ -2,3 +2,5 @@ data/*
 .venv/
 chromadb/
 *.pyc
+*.bk
+*__pycache__*

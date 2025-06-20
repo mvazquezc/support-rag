@@ -6,3 +6,4 @@ llama-index-llms-ollama
 llama-index-retrievers-bm25
 llama-index-readers-web
 gradio
+validators
