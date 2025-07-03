@@ -5,32 +5,52 @@ from llama_index.core.schema import TextNode
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core import VectorStoreIndex, PromptTemplate
-from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.llms.ollama import Ollama
+from llama_index.embeddings.openai_like import OpenAILikeEmbedding
+from llama_index.llms.openai_like import OpenAILike
 from llama_index.core.query_engine import RetrieverQueryEngine
 import gradio as gr
 from gradio import ChatMessage
 from html import unescape
 import re
 from llama_index.core.schema import QueryBundle
+import httpx
+import ssl
 
 class GradioChatBot():
-    def __init__(self, api_endpoint, model, context_window_length, embeddings_model, db_file_path, collection_name, chatbot_port):
+    def __init__(self, llm_api_endpoint, embeddings_api_endpoint, model_api_key, model, context_window_length, embeddings_api_key, embeddings_model, db_file_path, collection_name, chatbot_port, skip_tls):
         self.logger = Logger("gradio-chatbot", "INFO").new_logger()
-        if not url_is_valid(api_endpoint):
-            raise InvalidAPIEndpointError("Invalid API endpoint URL")
-        self.api_endpoint = api_endpoint
+        if not url_is_valid(llm_api_endpoint):
+            raise InvalidAPIEndpointError("Invalid LLM API endpoint URL")
+        if not url_is_valid(embeddings_api_endpoint):
+            raise InvalidAPIEndpointError("Invalid Embeddings API endpoint URL")
+        self.llm_api_endpoint = llm_api_endpoint
+        self.embeddings_api_endpoint = embeddings_api_endpoint
+        self.model_api_key = model_api_key
         self.model = model
         self.context_window_length = context_window_length
+        self.embeddings_api_key = embeddings_api_key
         self.embeddings_model = embeddings_model
         self.db_file_path = db_file_path
         self.collection_name = collection_name
         self.chatbot_port = chatbot_port
+        self.skip_tls = skip_tls
         
     def run(self):
-        
-        llm = Ollama(model=self.model, base_url=self.api_endpoint, context_window=self.context_window_length, request_timeout=300.0)
-        hybrid_retriever = self.configure_hybrid_retriever(llm)
+        if self.skip_tls:
+            self.logger.info("Skipping TLS verification.")
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            client = httpx.Client(verify=ssl_context)
+            embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key, http_client=client)
+            # is_chat_model is needed for the chatbot to work, otherwise it does completion instead of chat
+            llm = OpenAILike(model=self.model, api_base=self.llm_api_endpoint, context_window=self.context_window_length, api_key=self.model_api_key, http_client=client, is_chat_model=True)
+        else:    
+            embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key)
+            # is_chat_model is needed for the chatbot to work, otherwise it does completion instead of chat
+            llm = OpenAILike(model=self.model, api_base=self.llm_api_endpoint, context_window=self.context_window_length, api_key=self.model_api_key, is_chat_model=True)
+
+        hybrid_retriever = self.configure_hybrid_retriever(llm, embeddings_model)
         # Our final reranker, we have limited context window, we do 1. Something like 3 will be better
         reranker_top_n_results = 1
         query_engine = self.configure_query_engine(hybrid_retriever, llm, reranker_top_n_results)
@@ -95,7 +115,6 @@ class GradioChatBot():
              raise FailedToRunChatBotWebUI("ChatBot WebUI failed to start")
             
     
-    
     async def answer_query(self, user_query, num_sources, query_engine, only_high_similarity_nodes):
         self.logger.info(f"Will use {num_sources} (current config is {query_engine._node_postprocessors[0].top_n}) for answering user query: {user_query}")
         # If the user changes the top_n results from the UI, change it for the SummaryKeywordMatchReranker
@@ -151,6 +170,7 @@ class GradioChatBot():
         #self.logger.info("--- END CONTEXT BEING SENT TO LLM ---")
 
         # Perform the final synthesis step to get the answer
+        
         response = await query_engine.asynthesize(user_query, nodes=source_nodes_for_response)
         
         # Extract text and clean HTML entities
@@ -167,9 +187,7 @@ class GradioChatBot():
     
     def configure_query_engine(self, hybrid_retriever, llm, reranker_top_n_results):
         qa_template_str = (
-            "Question: {query_str}\n"
-            "Context:\n{context_str}\n\n"
-            
+#            "Question: {query_str}\n"
             "You are an assistant with access to previously opened support cases.\n"
             "These support cases are markdown files with the following structure:\n"
             "# <case_title>\n"
@@ -183,12 +201,16 @@ class GradioChatBot():
             "### Comment N\n"
             "<comment_N_text>\n"
             
-            "Your goal is:\n"
-            "Using the provided context, analyze the different comments and identify the ones that led to a solution\n"
-            "Once you have the comments, extract the solution from them and send that information to the user\n"
-            "The solution MUST include all the required steps to fix the issue\n"
+            "Using the provided context, you must analyze the different comments and identify the ones that led to a solution:\n"
+            "- Once you have the comments, analyze all the comments and think step by step.\n"
+            "- Extract the solution from the comments and send that information to the user.\n"
+            "- The solution MUST include all the required steps to fix the issue, make sure to include the steps in the correct order.\n"
+            "- If the solution is not found, state that you don't know or that the information is not available in the provided context.\n"
+
             "If you cannot find a solution within the comments, state that you don't know or that the information is not available in the provided context.\n\n"
             
+            "Context:\n{context_str}\n\n"
+
             "Answer:"
         )
         qa_prompt = PromptTemplate(qa_template_str)
@@ -198,7 +220,7 @@ class GradioChatBot():
         #   model="cross-encoder/ms-marco-MiniLM-L-2-v2",
         #    top_n=reranker_top_n_results
         #)
-
+        
         summary_keyword_reranker = SummaryKeywordMatchReranker(top_n=reranker_top_n_results)
         query_engine = RetrieverQueryEngine.from_args(
             retriever=hybrid_retriever, # Use the hybrid retriever
@@ -236,7 +258,7 @@ class GradioChatBot():
         
         return source_nodes_for_response
         
-    def configure_hybrid_retriever(self, llm):
+    def configure_hybrid_retriever(self, llm, embeddings_model):
         # Configure BM25Retriever, we need to get nodes from VectorDB first
         self.logger.info("Initializing BM25Retriever.")
         db_client = chromadb.PersistentClient(path=self.db_file_path)
@@ -256,7 +278,6 @@ class GradioChatBot():
         self.logger.info(f"BM25Retriever initialized. Retrieved {len(nodes)} from ChromaDB.")
         # Initialize Semantic Retriever
         self.logger.info("Initializing SemanticRetriever.")
-        embeddings_model = OllamaEmbedding(model_name=self.embeddings_model, base_url=self.api_endpoint)        
         vector_store_index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embeddings_model)
         semantic_retriever = vector_store_index.as_retriever(similarity_top_k=5)
         self.logger.info("SemanticRetriever initialized.")

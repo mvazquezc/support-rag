@@ -3,25 +3,37 @@ import os
 import re
 import chromadb
 import hashlib
+import httpx
+import ssl
 from llama_index.core.node_parser import MarkdownNodeParser
 from llama_index.core.schema import Document
 from llama_index.vector_stores.chroma import ChromaVectorStore
-from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.ingestion import IngestionPipeline
-
+from llama_index.embeddings.openai_like import OpenAILikeEmbedding
+import time
+import shutil
 
 class ChromaIngester():
-    def __init__(self, db_file_path, collection_name, api_endpoint, embeddings_model):
+    def __init__(self, db_file_path, db_endpoint, collection_name, embeddings_api_endpoint, embeddings_api_key, embeddings_model, skip_tls):
         self.logger = Logger("chroma-ingester", "INFO").new_logger()
         self.db_file_path = db_file_path
+        self.db_endpoint = db_endpoint
         self.collection_name = collection_name
-        if not url_is_valid(api_endpoint):
+        if not url_is_valid(embeddings_api_endpoint):
             raise InvalidAPIEndpointError("Invalid API endpoint URL")
-        self.api_endpoint = api_endpoint
+        if not url_is_valid(db_endpoint):
+            raise InvalidAPIEndpointError("Invalid DB endpoint URL")
+        self.embeddings_api_endpoint = embeddings_api_endpoint
+        self.embeddings_api_key = embeddings_api_key
         self.embeddings_model = embeddings_model
-        
+        self.skip_tls = skip_tls
+
     def configure_vector_store(self, initialize_db):
-        db_client = chromadb.PersistentClient(path=self.db_file_path)
+        if self.db_endpoint is not None:
+            _, host, port = split_url_endpoint(self.db_endpoint)
+            db_client = chromadb.HttpClient(host=host, port=port)
+        else:
+            db_client = chromadb.PersistentClient(path=self.db_file_path)
         if initialize_db:
             try:
                 self.logger.info(f"Attempting to delete existing collection {self.collection_name}")
@@ -53,14 +65,59 @@ class ChromaIngester():
         pipeline.run(nodes=parsed_nodes, show_progress=True)
         self.logger.info(f"Ingestion completed. items in ChromaDB: {chroma_collection.count()}")
     
-    def run_ingestion(self, folder, initialize_db):
+    def run_s3_ingestion(self, s3_bucket, s3_path, s3_endpoint, initialize_db, s3_access_key, s3_secret_key, interval, skip_tls, s3_download_folder):
+        if not s3_bucket:
+            raise S3Error("S3 bucket is required")
+        if not s3_path:
+            raise S3Error("S3 path is required")
+        if not s3_endpoint:
+            raise S3Error("S3 endpoint is required")
+        if not s3_access_key:
+            raise S3Error("S3 access key is required")
+        if not s3_secret_key:
+            raise S3Error("S3 secret key is required")
+        # Create S3 client
+        s3 = S3(s3_access_key, s3_secret_key, s3_endpoint, skip_tls)
+        # Since this is a daemon, we need to initialize the db only once
+        initialize_db_once = initialize_db
+        # Create ingested folder if it does not exist
+        if not os.path.exists(s3_download_folder):
+            os.makedirs(s3_download_folder)
+        while True:
+            # Download files
+            files_downloaded = s3.download_markdown_files_from_bucket(s3_bucket, s3_download_folder, s3_path)
+            
+            if len(files_downloaded) > 0:
+                self.logger.info(f"Downloaded {len(files_downloaded)} files from S3 bucket.")
+                # Ingest files
+                self.run_local_ingestion(s3_download_folder, initialize_db_once)
+                # Remove ingested files from path
+                shutil.rmtree(s3_download_folder)
+                # Move ingested files to ingested folder
+                for file in files_downloaded:
+                    s3.move_file(s3_bucket, file, f"ingested/{os.path.basename(file)}")
+                self.logger.info(f"Ingestion completed. Sleeping for {interval} minutes before checking S3 bucket for new files.")
+            else:
+                self.logger.info(f"No new files found. Sleeping for {interval} minutes before checking S3 bucket for new files.")
+            time.sleep(interval * 60)
+            initialize_db_once = False
+        
+    def run_local_ingestion(self, folder, initialize_db):
         if not folder_exists(folder):
             raise FolderDoesNotExistError(f"Folder does not exist: {folder}")
         # Configure vector store
         self.logger.info("Vector store configured.")
         chroma_collection, vector_store = self.configure_vector_store(initialize_db)
         # Configure embeddings model
-        embeddings_model = OllamaEmbedding(model_name=self.embeddings_model, base_url=self.api_endpoint)
+        if self.skip_tls:
+            self.logger.info("Skipping TLS verification.")
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            client = httpx.Client(verify=ssl_context)
+            embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key, http_client=client)
+        else:    
+            embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key)
         self.logger.info("Embeddings model configured.")
         case_files = list_markdown_files_in_folder(folder)
         md_parser = MarkdownCaseParser()

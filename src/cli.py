@@ -2,24 +2,25 @@ from utils.utils import *
 from ingestion.ingest import ChromaIngester
 from chatbot.chatbot import GradioChatBot
 import argparse
+import os
 
 
 def run_chatbot(args, logger):
     """Function to handle the 'chatbot' action."""
     logger.info(f"Starting chatbot on port {args.port}.")
     try:
-        chatbot = GradioChatBot(api_endpoint=args.api_endpoint, model=args.model, context_window_length=args.context_window_length, embeddings_model=args.embeddings_model, db_file_path="./chromadb", collection_name="support_cases", chatbot_port=args.port)
+        chatbot = GradioChatBot(llm_api_endpoint=args.llm_api_endpoint, embeddings_api_endpoint=args.embeddings_api_endpoint, model_api_key=args.llm_api_key, model=args.model, context_window_length=args.context_window_length, embeddings_api_key=args.embedding_api_key, embeddings_model=args.embeddings_model, db_file_path="./chromadb", collection_name="support_cases", chatbot_port=args.port, skip_tls=args.insecure_skip_tls)
         chatbot.run()
     except Exception as e:
         logger.error(f"{e}")
         return 1
 
-def run_ingest(args, logger):
+def run_local_ingest(args, logger):
     """Function to handle the 'ingest' action."""
     logger.info(f"Starting ingestion from folder {args.source_dir}.")
     try:
-        ingester = ChromaIngester(db_file_path="./chromadb", collection_name="support_cases", api_endpoint=args.api_endpoint, embeddings_model=args.embeddings_model)
-        ingester.run_ingestion(args.source_dir, args.initialize_db)
+        ingester = ChromaIngester(db_file_path="./chromadb", db_endpoint=args.db_endpoint, collection_name="support_cases", embeddings_api_endpoint=args.embeddings_api_endpoint, embeddings_api_key=args.embedding_api_key, embeddings_model=args.embeddings_model, skip_tls=args.insecure_skip_tls)
+        ingester.run_local_ingestion(args.source_dir, args.initialize_db)
     except FolderDoesNotExistError as e:
         logger.error(f"{e}")
         return 1
@@ -33,7 +34,18 @@ def run_ingest(args, logger):
         logger.error(f"{e}")
         return 1
 
+def run_s3_ingest(args, logger):
+    """Function to handle the 's3-ingest' action."""
+    logger.info(f"Starting ingestion from s3 bucket {args.s3_bucket} and path {args.s3_path}.")
+    try:
+        ingester = ChromaIngester(db_file_path="./chromadb", db_endpoint=args.db_endpoint, collection_name="support_cases", embeddings_api_endpoint=args.embeddings_api_endpoint, embeddings_api_key=args.embedding_api_key, embeddings_model=args.embeddings_model, skip_tls=args.insecure_skip_tls)
+        ingester.run_s3_ingestion(args.s3_bucket, args.s3_path, args.s3_endpoint, args.initialize_db, args.s3_access_key, args.s3_secret_key, args.interval, args.insecure_skip_tls, args.s3_download_folder)
+    except Exception as e:
+        logger.error(f"{e}")
+        return 1
+
 def main():
+    
     # Create logger for the cli
     logger = Logger("support-rag-cli", "INFO").new_logger()
 
@@ -79,49 +91,205 @@ def main():
         help="The embeddings model to be used."
     )
     parser_chatbot.add_argument(
-        "-e",
-        "--api-endpoint",
+        "-llm-api",
+        "--llm-api-endpoint",
         required=True,
         type=str,
-        help="The api endpoint to access the embedding model."
+        help="The api endpoint to access the llm model."
+    )
+    parser_chatbot.add_argument(
+        "-em-api",
+        "--embeddings-api-endpoint",
+        required=True,
+        type=str,
+        help="The api endpoint to access the embeddings model."
+    )
+    parser_chatbot.add_argument(
+        "--db-endpoint",
+        required=False,
+        type=str,
+        help="The endpoint to access the vector database."
+    )
+    parser_chatbot.add_argument(
+        "-lk",
+        "--llm-api-key",
+        required=False,
+        default=os.environ.get('OPENAI_API_KEY'),
+        type=str,
+        help="The api key to access the llm model. Default value reads OPENAI_API_KEY env var."
+    )
+    parser_chatbot.add_argument(
+        "-ek",
+        "--embedding-api-key",
+        required=False,
+        default=os.environ.get('OPENAI_EMBEDDING_API_KEY'),
+        type=str,
+        help="The api key to access the embedding model. Default value reads OPENAI_EMBEDDING_API_KEY env var."
     )   
+    parser_chatbot.add_argument(
+        "--insecure-skip-tls",
+        required=False,
+        action='store_true',
+        default=False,
+        help="If set, TLS connections to api endpoints skip cert verification."
+    )
     # Set function that handles the chatbot action
     parser_chatbot.set_defaults(func=run_chatbot)
-    # Add ingest parser
-    parser_ingest = subparsers.add_parser("ingest", help="Ingest data from a source.")
+    # Add local-ingest parser
+    parser_local_ingest = subparsers.add_parser("local-ingest", help="Ingest data from a local source.")
     # Add source dir argument
-    parser_ingest.add_argument(
+    parser_local_ingest.add_argument(
         "-d",
         "--source-dir",
         required=True,
         type=str,
         help="The directory containing the data to ingest."
     )
-    parser_ingest.add_argument(
+    parser_local_ingest.add_argument(
         "-m",
         "--embeddings-model",
         required=True,
         type=str,
         help="The embeddings model to be used."
     )
-    parser_ingest.add_argument(
-        "-e",
-        "--api-endpoint",
+    parser_local_ingest.add_argument(
+        "--db-endpoint",
+        required=False,
+        type=str,
+        help="The endpoint to access the vector database."
+    )
+    parser_local_ingest.add_argument(
+        "-em-api",
+        "--embeddings-api-endpoint",
         required=True,
         type=str,
         help="The api endpoint to access the embedding model."
     )
-    parser_ingest.add_argument(
+    parser_local_ingest.add_argument(
+        "-ek",
+        "--embedding-api-key",
+        required=False,
+        default=os.environ.get('OPENAI_EMBEDDING_API_KEY'),
+        type=str,
+        help="The api key to access the embedding model. Default value reads OPENAI_EMBEDDING_API_KEY env var."
+    )   
+    parser_local_ingest.add_argument(
         "-i",
         "--initialize-db",
         required=False,
         action='store_true',
-        #type=bool,
         default=False,
         help="If set, the vector database will be cleaned before running the ingestion."
     )
+    parser_local_ingest.add_argument(
+        "--insecure-skip-tls",
+        required=False,
+        action='store_true',
+        default=False,
+        help="If set, TLS connections to api endpoint skip cert verification."
+    )
     # Set function that handles the ingest action
-    parser_ingest.set_defaults(func=run_ingest)
+    parser_local_ingest.set_defaults(func=run_local_ingest)
+    # Add local-ingest parser
+    parser_s3_ingest = subparsers.add_parser("s3-ingest", help="Ingest data from a s3 source.")
+    # Add source dir argument
+
+    parser_s3_ingest.add_argument(
+        "-m",
+        "--embeddings-model",
+        required=True,
+        type=str,
+        help="The embeddings model to be used."
+    )
+    parser_s3_ingest.add_argument(
+        "-em-api",
+        "--embeddings-api-endpoint",
+        required=True,
+        type=str,
+        help="The api endpoint to access the embedding model."
+    )
+    parser_s3_ingest.add_argument(
+        "-ek",
+        "--embedding-api-key",
+        required=False,
+        default=os.environ.get('OPENAI_EMBEDDING_API_KEY'),
+        type=str,
+        help="The api key to access the embedding model. Default value reads OPENAI_EMBEDDING_API_KEY env var."
+    )   
+    parser_s3_ingest.add_argument(
+        "-i",
+        "--initialize-db",
+        required=False,
+        action='store_true',
+        default=False,
+        help="If set, the vector database will be cleaned before running the ingestion."
+    )
+    parser_s3_ingest.add_argument(
+        "--db-endpoint",
+        required=False,
+        type=str,
+        help="The endpoint to access the vector database."
+    )
+    parser_s3_ingest.add_argument(
+        "--insecure-skip-tls",
+        required=False,
+        action='store_true',
+        default=False,
+        help="If set, TLS connections to api endpoint skip cert verification."
+    )
+    parser_s3_ingest.add_argument(
+        "-b",
+        "--s3-bucket",
+        required=True,
+        type=str,
+        help="The S3 bucket to ingest data from."
+    )
+    parser_s3_ingest.add_argument(
+        "-p",
+        "--s3-path",
+        required=True,
+        type=str,
+        help="The S3 path to ingest data from."
+    )
+    parser_s3_ingest.add_argument(
+        "-e",
+        "--s3-endpoint",
+        required=False,
+        type=str,
+        help="The S3 endpoint to ingest data from."
+    )
+    parser_s3_ingest.add_argument(
+        "-ak",
+        "--s3-access-key",
+        required=False,
+        default=os.environ.get('S3_ACCESS_KEY'),
+        type=str,
+        help="The S3 acccess key."
+    )
+    parser_s3_ingest.add_argument(
+        "-sk",
+        "--s3-secret-key",
+        required=False,
+        default=os.environ.get('S3_SECRET_KEY'),
+        type=str,
+        help="The S3 secret key."
+    )
+    parser_s3_ingest.add_argument(
+        "--interval",
+        required=False,
+        default=5,
+        type=int,
+        help="The interval in minutes to ingest data from the S3 bucket."
+    )
+    parser_s3_ingest.add_argument(
+        "--s3-download-folder",
+        required=False,
+        default="./s3-download",
+        type=str,
+        help="The folder to download the S3 files to."
+    )
+    # Set function that handles the ingest action
+    parser_s3_ingest.set_defaults(func=run_s3_ingest)
     args = parser.parse_args()
     args.func(args,logger)
     
