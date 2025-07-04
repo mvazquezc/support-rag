@@ -1,6 +1,7 @@
 from utils.utils import *
 from ingestion.ingest import ChromaIngester
 from chatbot.chatbot import GradioChatBot
+from ragapi.ragapi import RagApi
 import argparse
 import os
 
@@ -9,8 +10,18 @@ def run_chatbot(args, logger):
     """Function to handle the 'chatbot' action."""
     logger.info(f"Starting chatbot on port {args.port}.")
     try:
-        chatbot = GradioChatBot(llm_api_endpoint=args.llm_api_endpoint, embeddings_api_endpoint=args.embeddings_api_endpoint, model_api_key=args.llm_api_key, model=args.model, context_window_length=args.context_window_length, embeddings_api_key=args.embedding_api_key, embeddings_model=args.embeddings_model, db_file_path="./chromadb", collection_name="support_cases", chatbot_port=args.port, skip_tls=args.insecure_skip_tls)
+        chatbot = GradioChatBot(chatbot_port=args.port, rag_api_endpoint=args.rag_api_endpoint, skip_tls=args.insecure_skip_tls)
         chatbot.run()
+    except Exception as e:
+        logger.error(f"{e}")
+        return 1
+
+def run_rag_api(args, logger):
+    """Function to handle the 'rag-api' action."""
+    logger.info(f"Starting rag api on port {args.port}.")
+    try:
+        rag_api = RagApi(llm_api_endpoint=args.llm_api_endpoint, embeddings_api_endpoint=args.embeddings_api_endpoint, model_api_key=args.llm_api_key, model=args.model, context_window_length=args.context_window_length, embeddings_api_key=args.embedding_api_key, embeddings_model=args.embeddings_model, db_file_path="./chromadb", collection_name="support_cases", api_port=args.port, skip_tls=args.insecure_skip_tls)
+        rag_api.run()
     except Exception as e:
         logger.error(f"{e}")
         return 1
@@ -57,6 +68,86 @@ def main():
     # Create the subparser
     subparsers = parser.add_subparsers(dest="action", required=True, help="Available actions")
     
+
+    # Add rag-api parser
+    parser_rag_api = subparsers.add_parser("rag-api", help="Initiate rag api.")
+    # Add listen port argument
+    parser_rag_api.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        required=False,
+        default=8080,
+        help="The port where the WebUI will be exposed."
+    )
+    parser_rag_api.add_argument(
+        "-m",
+        "--model",
+        required=True,
+        type=str,
+        help="The LLM model to be used."
+    )
+    parser_rag_api.add_argument(
+        "-w",
+        "--context-window-length",
+        required=False,
+        default=10000,
+        type=str,
+        help="The model's context window length."
+    )
+    parser_rag_api.add_argument(
+        "-em",
+        "--embeddings-model",
+        required=True,
+        type=str,
+        help="The embeddings model to be used."
+    )
+    parser_rag_api.add_argument(
+        "-llm-api",
+        "--llm-api-endpoint",
+        required=True,
+        type=str,
+        help="The api endpoint to access the llm model."
+    )
+    parser_rag_api.add_argument(
+        "-em-api",
+        "--embeddings-api-endpoint",
+        required=True,
+        type=str,
+        help="The api endpoint to access the embeddings model."
+    )
+    parser_rag_api.add_argument(
+        "--db-endpoint",
+        required=False,
+        type=str,
+        help="The endpoint to access the vector database."
+    )
+    parser_rag_api.add_argument(
+        "-lk",
+        "--llm-api-key",
+        required=False,
+        default=os.environ.get('OPENAI_API_KEY'),
+        type=str,
+        help="The api key to access the llm model. Default value reads OPENAI_API_KEY env var."
+    )
+    parser_rag_api.add_argument(
+        "-ek",
+        "--embedding-api-key",
+        required=False,
+        default=os.environ.get('OPENAI_EMBEDDING_API_KEY'),
+        type=str,
+        help="The api key to access the embedding model. Default value reads OPENAI_EMBEDDING_API_KEY env var."
+    )   
+    parser_rag_api.add_argument(
+        "--insecure-skip-tls",
+        required=False,
+        action='store_true',
+        default=False,
+        help="If set, TLS connections to api endpoints skip cert verification."
+    )
+    # Set function that handles the chatbot action
+    parser_rag_api.set_defaults(func=run_rag_api)
+
     # Add chatbot parser
     parser_chatbot = subparsers.add_parser("chatbot", help="Initiate chat webui.")
     # Add listen port argument
@@ -69,63 +160,12 @@ def main():
         help="The port where the WebUI will be exposed."
     )
     parser_chatbot.add_argument(
-        "-m",
-        "--model",
-        required=True,
-        type=str,
-        help="The LLM model to be used."
-    )
-    parser_chatbot.add_argument(
-        "-w",
-        "--context-window-length",
+        "--rag-api-endpoint",
         required=False,
-        default=10000,
+        default="http://127.0.0.1:8080/answer",
         type=str,
-        help="The model's context window length."
+        help="The endpoint to access the rag api."
     )
-    parser_chatbot.add_argument(
-        "-em",
-        "--embeddings-model",
-        required=True,
-        type=str,
-        help="The embeddings model to be used."
-    )
-    parser_chatbot.add_argument(
-        "-llm-api",
-        "--llm-api-endpoint",
-        required=True,
-        type=str,
-        help="The api endpoint to access the llm model."
-    )
-    parser_chatbot.add_argument(
-        "-em-api",
-        "--embeddings-api-endpoint",
-        required=True,
-        type=str,
-        help="The api endpoint to access the embeddings model."
-    )
-    parser_chatbot.add_argument(
-        "--db-endpoint",
-        required=False,
-        type=str,
-        help="The endpoint to access the vector database."
-    )
-    parser_chatbot.add_argument(
-        "-lk",
-        "--llm-api-key",
-        required=False,
-        default=os.environ.get('OPENAI_API_KEY'),
-        type=str,
-        help="The api key to access the llm model. Default value reads OPENAI_API_KEY env var."
-    )
-    parser_chatbot.add_argument(
-        "-ek",
-        "--embedding-api-key",
-        required=False,
-        default=os.environ.get('OPENAI_EMBEDDING_API_KEY'),
-        type=str,
-        help="The api key to access the embedding model. Default value reads OPENAI_EMBEDDING_API_KEY env var."
-    )   
     parser_chatbot.add_argument(
         "--insecure-skip-tls",
         required=False,

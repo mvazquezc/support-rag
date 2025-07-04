@@ -7,6 +7,12 @@ from llama_index.core.postprocessor.types import BaseNodePostprocessor
 from llama_index.core.schema import QueryBundle, NodeWithScore
 from typing import List, Optional
 from urllib.parse import urlparse
+from pydantic import BaseModel
+
+class UserQuery(BaseModel):
+    user_query: Optional[str] = None
+    num_sources: int = 1
+    only_high_similarity_nodes: bool = False
 
 class FolderDoesNotExistError(Exception):
     """Exception raised when a folder does not exist."""
