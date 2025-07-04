@@ -20,7 +20,7 @@ def run_rag_api(args, logger):
     """Function to handle the 'rag-api' action."""
     logger.info(f"Starting rag api on port {args.port}.")
     try:
-        rag_api = RagApi(llm_api_endpoint=args.llm_api_endpoint, embeddings_api_endpoint=args.embeddings_api_endpoint, model_api_key=args.llm_api_key, model=args.model, context_window_length=args.context_window_length, embeddings_api_key=args.embedding_api_key, embeddings_model=args.embeddings_model, db_file_path="./chromadb", collection_name="support_cases", api_port=args.port, skip_tls=args.insecure_skip_tls)
+        rag_api = RagApi(llm_api_endpoint=args.llm_api_endpoint, embeddings_api_endpoint=args.embeddings_api_endpoint, model_api_key=args.llm_api_key, model=args.model, context_window_length=args.context_window_length, embeddings_api_key=args.embedding_api_key, embeddings_model=args.embeddings_model, db_file_path="./chromadb", db_endpoint=args.db_endpoint, collection_name="support_cases", api_port=args.port, skip_tls=args.insecure_skip_tls)
         rag_api.run()
     except Exception as e:
         logger.error(f"{e}")
@@ -156,7 +156,7 @@ def main():
         "--port",
         type=int,
         required=False,
-        default=8080,
+        default=8181,
         help="The port where the WebUI will be exposed."
     )
     parser_chatbot.add_argument(

@@ -72,7 +72,7 @@ class GradioChatBot():
                 outputs=[chatbot]
             )
         try:
-            webui.launch(server_port=self.chatbot_port)
+            webui.launch(server_port=self.chatbot_port, server_name="0.0.0.0")
         except:
              raise FailedToRunChatBotWebUI("ChatBot WebUI failed to start")
             

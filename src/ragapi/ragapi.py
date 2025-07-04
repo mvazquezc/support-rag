@@ -17,12 +17,14 @@ import httpx
 import ssl
 
 class RagApi():
-    def __init__(self, llm_api_endpoint, embeddings_api_endpoint, model_api_key, model, context_window_length, embeddings_api_key, embeddings_model, db_file_path, collection_name, api_port, skip_tls):
+    def __init__(self, llm_api_endpoint, embeddings_api_endpoint, model_api_key, model, context_window_length, embeddings_api_key, embeddings_model, db_file_path, db_endpoint, collection_name, api_port, skip_tls):
         self.logger = Logger("rag-api", "INFO").new_logger()
         if not url_is_valid(llm_api_endpoint):
             raise InvalidAPIEndpointError("Invalid LLM API endpoint URL")
         if not url_is_valid(embeddings_api_endpoint):
             raise InvalidAPIEndpointError("Invalid Embeddings API endpoint URL")
+        if not url_is_valid(db_endpoint):
+            raise InvalidAPIEndpointError("Invalid DB endpoint URL")
         self.llm_api_endpoint = llm_api_endpoint
         self.embeddings_api_endpoint = embeddings_api_endpoint
         self.model_api_key = model_api_key
@@ -31,6 +33,7 @@ class RagApi():
         self.embeddings_api_key = embeddings_api_key
         self.embeddings_model = embeddings_model
         self.db_file_path = db_file_path
+        self.db_endpoint = db_endpoint
         self.collection_name = collection_name
         self.api_port = api_port
         self.skip_tls = skip_tls
@@ -75,9 +78,6 @@ class RagApi():
                 return {"error": f"Internal server error: {str(e)}"}
         
         uvicorn.run(app, host="0.0.0.0", port=self.api_port)
-
-        
-        
             
     
     async def answer_query(self, user_query, num_sources, query_engine, only_high_similarity_nodes):
@@ -198,7 +198,11 @@ class RagApi():
         return query_engine
     
     def return_full_cases_from_vectordb_as_node(self, case_filenames):
-        db_client = chromadb.PersistentClient(path=self.db_file_path)
+        if self.db_endpoint is not None:
+            _, host, port = split_url_endpoint(self.db_endpoint)
+            db_client = chromadb.HttpClient(host=host, port=port)
+        else:
+            db_client = chromadb.PersistentClient(path=self.db_file_path)
         chroma_collection = db_client.get_collection(name=self.collection_name)
         source_nodes_for_response = []
         for case_file in case_filenames:
@@ -227,7 +231,11 @@ class RagApi():
     def configure_hybrid_retriever(self, llm, embeddings_model):
         # Configure BM25Retriever, we need to get nodes from VectorDB first
         self.logger.info("Initializing BM25Retriever.")
-        db_client = chromadb.PersistentClient(path=self.db_file_path)
+        if self.db_endpoint is not None:
+            _, host, port = split_url_endpoint(self.db_endpoint)
+            db_client = chromadb.HttpClient(host=host, port=port)
+        else:
+            db_client = chromadb.PersistentClient(path=self.db_file_path)
         chroma_collection = db_client.get_collection(name=self.collection_name)
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         chroma_results = chroma_collection.get()
