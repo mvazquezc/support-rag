@@ -11,7 +11,7 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 import time
-import shutil
+
 
 class ChromaIngester():
     def __init__(self, db_file_path, db_endpoint, collection_name, embeddings_api_endpoint, embeddings_api_key, embeddings_model, skip_tls):
@@ -91,8 +91,6 @@ class ChromaIngester():
                 self.logger.info(f"Downloaded {len(files_downloaded)} files from S3 bucket.")
                 # Ingest files
                 self.run_local_ingestion(s3_download_folder, initialize_db_once)
-                # Remove ingested files from path
-                shutil.rmtree(s3_download_folder)
                 # Move ingested files to ingested folder
                 for file in files_downloaded:
                     s3.move_file(s3_bucket, file, f"ingested/{os.path.basename(file)}")
@@ -115,7 +113,8 @@ class ChromaIngester():
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
             client = httpx.Client(verify=ssl_context)
-            embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key, http_client=client)
+            aclient = httpx.AsyncClient(verify=ssl_context)
+            embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key, http_client=client, async_http_client=aclient)
         else:    
             embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key)
         self.logger.info("Embeddings model configured.")
@@ -128,7 +127,6 @@ class ChromaIngester():
             self.logger.info(f"Processing case file: {case_file}. [{processed_files}/{case_files_to_process}]")
             if not re.match(r"^case_\d{8}\.md$", case_file):
                 raise InvalidCaseFileNameError(f"Invalid file name: {case_file}. Expected format is 'case_XXXXXXXX.md'.")
-            
             try:
                 nodes = md_parser.process_markdown_file(f"{folder}/{case_file}")
             except Exception:
@@ -136,7 +134,8 @@ class ChromaIngester():
                 raise ChromaCollectionDeleteError(f"Error parsing markdown for nodes from {case_file}")
             try:
                 self.run_embeddings_ingestion(embeddings_model, vector_store, nodes, chroma_collection)
-                # Step 3, setup embed model then run embeddings ingestion.
+                # Remove ingested file from folder
+                os.remove(f"{folder}/{case_file}")
                 processed_files += 1
             except Exception as e:
                 # TODO: change exception to custom one

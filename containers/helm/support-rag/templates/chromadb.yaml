@@ -1,0 +1,98 @@
+{{- if .Values.chromadb.enabled }}
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: chromadb-pvc
+  namespace: {{ .Values.namespace.name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.chromadb.persistence.size }}
+  volumeMode: Filesystem
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: chromadb
+  namespace: {{ .Values.namespace.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chromadb
+  template:
+    metadata:
+      labels:
+        app: chromadb
+    spec:
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: chromadb-pvc
+      containers:
+        - resources:
+            limits:
+              cpu: {{ .Values.chromadb.resources.limits.cpu }}
+              memory: {{ .Values.chromadb.resources.limits.memory }}
+            requests:
+              cpu: {{ .Values.chromadb.resources.requests.cpu }}
+              memory: {{ .Values.chromadb.resources.requests.memory }}
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          terminationMessagePath: /dev/termination-log
+          name: chromadb
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          ports:
+            - containerPort: 8000
+          imagePullPolicy: {{ .Values.chromadb.image.pullPolicy }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          terminationMessagePolicy: File
+          image: {{ .Values.chromadb.image.repository }}:{{ .Values.chromadb.image.tag }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      securityContext: {}
+      schedulerName: default-scheduler
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: chromadb-service
+  namespace: {{ .Values.namespace.name }}
+spec:
+  ipFamilies:
+    - IPv4
+  ports:
+    - name: api
+      protocol: TCP
+      port: 8000
+      targetPort: 8000
+  internalTrafficPolicy: Cluster
+  type: ClusterIP
+  ipFamilyPolicy: SingleStack
+  sessionAffinity: None
+  selector:
+    app: chromadb
+{{- end }} 

@@ -1,6 +1,7 @@
 from utils.utils import *
 from ingestion.ingest import ChromaIngester
 from chatbot.chatbot import GradioChatBot
+from agent.agent import GradioAgent
 from ragapi.ragapi import RagApi
 import argparse
 import os
@@ -12,6 +13,16 @@ def run_chatbot(args, logger):
     try:
         chatbot = GradioChatBot(chatbot_port=args.port, rag_api_endpoint=args.rag_api_endpoint, skip_tls=args.insecure_skip_tls)
         chatbot.run()
+    except Exception as e:
+        logger.error(f"{e}")
+        return 1
+
+def run_agent(args, logger):
+    """Function to handle the 'agent' action."""
+    logger.info(f"Starting agent on port {args.port}.")
+    try:
+        agent = GradioAgent(agent_port=args.port, rag_api_endpoint=args.rag_api_endpoint, llm_api_endpoint=args.llm_api_endpoint, model_api_key=args.llm_api_key, model=args.model, context_window_length=args.context_window_length, skip_tls=args.insecure_skip_tls)
+        agent.run()
     except Exception as e:
         logger.error(f"{e}")
         return 1
@@ -125,16 +136,14 @@ def main():
     parser_rag_api.add_argument(
         "-lk",
         "--llm-api-key",
-        required=False,
-        default=os.environ.get('OPENAI_API_KEY'),
+        required=True,
         type=str,
         help="The api key to access the llm model. Default value reads OPENAI_API_KEY env var."
     )
     parser_rag_api.add_argument(
         "-ek",
         "--embedding-api-key",
-        required=False,
-        default=os.environ.get('OPENAI_EMBEDDING_API_KEY'),
+        required=True,
         type=str,
         help="The api key to access the embedding model. Default value reads OPENAI_EMBEDDING_API_KEY env var."
     )   
@@ -175,6 +184,62 @@ def main():
     )
     # Set function that handles the chatbot action
     parser_chatbot.set_defaults(func=run_chatbot)
+    # Add chatbot parser
+    parser_agent = subparsers.add_parser("agent", help="Initiate agent webui.")
+    # Add listen port argument
+    parser_agent.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        required=False,
+        default=8282,
+        help="The port where the WebUI will be exposed."
+    )
+    parser_agent.add_argument(
+        "--rag-api-endpoint",
+        required=False,
+        default="http://127.0.0.1:8080/answer",
+        type=str,
+        help="The endpoint to access the rag api."
+    )
+    parser_agent.add_argument(
+        "--insecure-skip-tls",
+        required=False,
+        action='store_true',
+        default=False,
+        help="If set, TLS connections to api endpoints skip cert verification."
+    )
+    parser_agent.add_argument(
+        "-m",
+        "--model",
+        required=True,
+        type=str,
+        help="The LLM model to be used."
+    )
+    parser_agent.add_argument(
+        "-w",
+        "--context-window-length",
+        required=False,
+        default=10000,
+        type=str,
+        help="The model's context window length."
+    )
+    parser_agent.add_argument(
+        "-llm-api",
+        "--llm-api-endpoint",
+        required=True,
+        type=str,
+        help="The api endpoint to access the llm model."
+    )
+    parser_agent.add_argument(
+        "-lk",
+        "--llm-api-key",
+        required=True,
+        type=str,
+        help="The api key to access the llm model. Default value reads OPENAI_API_KEY env var."
+    )
+    # Set function that handles the chatbot action
+    parser_agent.set_defaults(func=run_agent)
     # Add local-ingest parser
     parser_local_ingest = subparsers.add_parser("local-ingest", help="Ingest data from a local source.")
     # Add source dir argument
@@ -208,8 +273,7 @@ def main():
     parser_local_ingest.add_argument(
         "-ek",
         "--embedding-api-key",
-        required=False,
-        default=os.environ.get('OPENAI_EMBEDDING_API_KEY'),
+        required=True,
         type=str,
         help="The api key to access the embedding model. Default value reads OPENAI_EMBEDDING_API_KEY env var."
     )   
@@ -251,8 +315,7 @@ def main():
     parser_s3_ingest.add_argument(
         "-ek",
         "--embedding-api-key",
-        required=False,
-        default=os.environ.get('OPENAI_EMBEDDING_API_KEY'),
+        required=True,
         type=str,
         help="The api key to access the embedding model. Default value reads OPENAI_EMBEDDING_API_KEY env var."
     )   

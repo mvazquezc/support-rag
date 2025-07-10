@@ -1,0 +1,17 @@
+apiVersion: v2
+name: support-rag
+description: A Helm chart for Support RAG (Retrieval-Augmented Generation) application
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - rag
+  - support
+  - ai
+  - chatbot
+home: https://github.com/mvazquezc/support-rag
+sources:
+  - https://github.com/mvazquezc/support-rag
+maintainers:
+  - name: Mario Vázquez
+    email: mavazque@redhat.com

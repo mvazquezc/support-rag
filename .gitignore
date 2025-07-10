@@ -6,3 +6,7 @@ chromadb/
 *__pycache__*
 .env
 s3-download/*
+TODO.txt
+lab-values.yaml
+.vscode/
+prototypes/

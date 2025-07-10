@@ -45,14 +45,14 @@ class RagApi():
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
             client = httpx.Client(verify=ssl_context)
-            embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key, http_client=client)
+            aclient = httpx.AsyncClient(verify=ssl_context)
+            embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key, http_client=client, async_http_client=aclient)
             # is_chat_model is needed for the chatbot to work, otherwise it does completion instead of chat
-            llm = OpenAILike(model=self.model, api_base=self.llm_api_endpoint, context_window=self.context_window_length, api_key=self.model_api_key, http_client=client, is_chat_model=True)
+            llm = OpenAILike(model=self.model, api_base=self.llm_api_endpoint, context_window=self.context_window_length, api_key=self.model_api_key, http_client=client, async_http_client=aclient, is_chat_model=True)
         else:    
             embeddings_model = OpenAILikeEmbedding(model_name=self.embeddings_model, api_base=self.embeddings_api_endpoint, api_key=self.embeddings_api_key)
             # is_chat_model is needed for the chatbot to work, otherwise it does completion instead of chat
             llm = OpenAILike(model=self.model, api_base=self.llm_api_endpoint, context_window=self.context_window_length, api_key=self.model_api_key, is_chat_model=True)
-
         hybrid_retriever = self.configure_hybrid_retriever(llm, embeddings_model)
         # Our final reranker, we have limited context window, we do 1. Something like 3 will be better
         reranker_top_n_results = 1

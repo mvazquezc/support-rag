@@ -1,0 +1,170 @@
+# Namespace configuration
+namespace:
+  create: true
+  name: support-rag
+
+# MinIO configuration
+minio:
+  deploy: true
+  image:
+    repository: quay.io/minio/minio
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  persistence:
+    size: 120Gi
+  
+  auth:
+    rootUser: "<YOUR_ROOT_USER_HERE>"
+    rootPassword: "<YOUR_ROOT_PASSWORD_HERE>"
+  
+  resources:
+    limits:
+      cpu: 250m
+      memory: 1Gi
+    requests:
+      cpu: 20m
+      memory: 100Mi
+  
+  routes:
+    api:
+      enabled: trues
+    ui:
+      enabled: true
+
+# ChromaDB configuration
+chromadb:
+  enabled: true
+  image:
+    repository: docker.io/chromadb/chroma
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  persistence:
+    size: 10Gi
+  
+  resources:
+    limits:
+      cpu: 250m
+      memory: 1Gi
+    requests:
+      cpu: 20m
+      memory: 100Mi
+
+# RAG Support Application configuration
+ragSupportApp:  
+  # Ingestion Service
+  authTokens:
+    embeddingsAuth:
+      token: "<YOUR_TOKEN_HERE>"
+    ragLlmAuth:
+      token: "<YOUR_TOKEN_HERE>"
+    agentLlmAuth:
+      token: "<YOUR_TOKEN_HERE>"
+    s3Auth:
+      accessKey: "<YOUR_ACCESS_KEY_HERE>"
+      secretKey: "<YOUR_SECRET_KEY_HERE>"
+
+  routes:
+    chatbotUi:
+      enabled: true
+    agentUi:
+      enabled: true
+
+  ingestionService:
+    enabled: true
+    image:
+      repository: quay.io/mavazque/support-rag-tool
+      tag: latest
+      pullPolicy: IfNotPresent
+    
+    persistence:
+      size: 5Gi
+    
+    resources:
+      limits:
+        cpu: 250m
+        memory: 1Gi
+      requests:
+        cpu: 20m
+        memory: 100Mi
+    
+    config:
+      embeddingsModel: nomic-embed-text-v1.5
+      embeddingsApi: https://nomic-embed-text-v15-predictor.support-rag.svc.cluster.local:8443/v1/
+      bucket: supportcases
+      prefix: ingest
+      s3Endpoint: http://minio-service.support-rag.svc.cluster.local:9000
+      chromaEndpoint: http://chromadb-service.support-rag.svc.cluster.local:8000
+      insecureSkipTls: true
+  
+  # RAG Service
+  ragService:
+    enabled: true
+    
+    image:
+      repository: quay.io/mavazque/support-rag-tool
+      tag: latest
+      pullPolicy: IfNotPresent
+    
+    resources:
+      limits:
+        cpu: 250m
+        memory: 1Gi
+      requests:
+        cpu: 20m
+        memory: 100Mi
+    
+    config:
+      llmModel: llama-32-3b-instruct-fp8
+      llmApi: https://llama-32-3b-instruct-fp8-predictor.support-rag.svc.cluster.local:8443/v1/
+      embeddingsModel: nomic-embed-text-v1.5
+      embeddingsApi: https://nomic-embed-text-v15-predictor.support-rag.svc.cluster.local:8443/v1/
+      contextWindowLength: "20000"
+      chromaEndpoint: http://chromadb-service.support-rag.svc.cluster.local:8000
+      insecureSkipTls: true
+  
+  # RAG Chatbot UI
+  chatbotUi:
+    enabled: true
+    image:
+      repository: quay.io/mavazque/support-rag-tool
+      tag: latest
+      pullPolicy: Always
+    
+    resources:
+      limits:
+        cpu: 250m
+        memory: 1Gi
+      requests:
+        cpu: 20m
+        memory: 100Mi
+    
+    
+    config:
+      ragApiEndpoint: http://rag-service.support-rag.svc.cluster.local:8080/answer
+    
+
+  # RAG Agent UI
+  agentUi:
+    enabled: true
+    image:
+      repository: quay.io/mavazque/support-rag-tool
+      tag: latest
+      pullPolicy: Always
+    
+    resources:
+      limits:
+        cpu: 250m
+        memory: 1Gi
+      requests:
+        cpu: 20m
+        memory: 100Mi
+    
+    
+    config:
+      ragApiEndpoint: http://rag-service.support-rag.svc.cluster.local:8080/answer
+      llmApiEndpoint: https://llama-32-3b-instruct-fp8-predictor.support-rag.svc.cluster.local:8443/v1/
+      model: llama-32-3b-instruct-fp8
+      contextWindowLength: "20000"
+      insecureSkipTls: true

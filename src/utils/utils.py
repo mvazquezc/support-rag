@@ -14,6 +14,16 @@ class UserQuery(BaseModel):
     num_sources: int = 1
     only_high_similarity_nodes: bool = False
 
+
+class SupportTicketQuery(BaseModel):
+    """
+    A Pydantic model representing the query for a support ticket.
+    The agent will try to fill the fields of this model from the user's conversation.
+    """
+    user_description: Optional[str] = None
+    product_version: Optional[str] = None
+    error_message: Optional[str] = None
+
 class FolderDoesNotExistError(Exception):
     """Exception raised when a folder does not exist."""
     pass
